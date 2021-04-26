@@ -1,23 +1,18 @@
 package com.ning.es;
 
 import org.apache.http.HttpHost;
-import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestHighLevelClient;
-import org.elasticsearch.common.unit.Fuzziness;
 import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.index.query.*;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.aggregations.AggregationBuilders;
 import org.elasticsearch.search.aggregations.Aggregations;
-import org.elasticsearch.search.aggregations.BucketOrder;
 import org.elasticsearch.search.aggregations.bucket.terms.Terms;
 import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
-import org.elasticsearch.search.aggregations.metrics.CardinalityAggregationBuilder;
-import org.elasticsearch.search.aggregations.metrics.MaxAggregationBuilder;
 import org.elasticsearch.search.aggregations.metrics.TopHits;
 import org.elasticsearch.search.aggregations.metrics.TopHitsAggregationBuilder;
 import org.elasticsearch.search.aggregations.pipeline.BucketSortPipelineAggregationBuilder;
@@ -26,7 +21,7 @@ import org.elasticsearch.search.sort.FieldSortBuilder;
 import org.elasticsearch.search.sort.SortOrder;
 
 import java.io.IOException;
-import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -34,7 +29,7 @@ import java.util.concurrent.TimeUnit;
  * @Date 2021/4/11 3:47 下午
  * @Description
  */
-public class ESTest_doc_query_group {
+public class ESTest_doc_query_group_querynewest {
 
     private static final String MSD_ID = "msgId";
     private static final String MSD_ID_KEYWORD = "msgId.keyword";
@@ -66,70 +61,27 @@ public class ESTest_doc_query_group {
 
         // 查询数据
         SearchRequest searchRequest = new SearchRequest("im");
+
         SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
         BoolQueryBuilder filterQueryBuilder = new BoolQueryBuilder();
 
-        //通用查询条件，非删除状态，而且必须我是接收者
-        filterQueryBuilder.must(new TermQueryBuilder(IS_DELETED_KEYWORD, "0"));
+        filterQueryBuilder.must(new TermQueryBuilder(IS_DELETED_KEYWORD, 0));
         filterQueryBuilder.must(new TermQueryBuilder(RECEIVER_ID_KEYWORD, "26174"));
 
-        //todo senderIdList
-        BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery();
-        boolQueryBuilder.should(new TermQueryBuilder(SENDER_ID_KEYWORD, "24537"));
-        boolQueryBuilder.should(new TermQueryBuilder(SENDER_ID_KEYWORD, "26174"));
-
-        filterQueryBuilder.must(boolQueryBuilder);
-
-//        filterQueryBuilder.must(new TermQueryBuilder(SENDER_ID_KEYWORD, "24535"));
-//        filterQueryBuilder.must(new TermQueryBuilder(SENDER_ID_KEYWORD, "26174"));
-
-//        filterQueryBuilder.must(new FuzzyQueryBuilder(INDEX_FIELD_KEYWORD, "世界"));
-        //todo keyword查询
-        filterQueryBuilder.must(new WildcardQueryBuilder(INDEX_FIELD_KEYWORD, "*5*"));
-
-        //todo 时间范围查询
-        long start =  0;
-        long end = Long.MAX_VALUE;
-        filterQueryBuilder.must(new RangeQueryBuilder(TIME).from(start).to(end).includeLower(true).includeUpper(false));
-
+        String groupId = "24537,26174";
+        filterQueryBuilder.must(new TermQueryBuilder(GROUP_ID_KEYWORD, groupId));
 
         searchSourceBuilder.query(filterQueryBuilder);
-
-        //todo 根据关键字分组
-        TermsAggregationBuilder my = AggregationBuilders.terms("my").field("groupId.keyword");
-        //todo 分组后，每个相同群组的结果
-        TopHitsAggregationBuilder my_top_hits = AggregationBuilders.topHits("my_top_hits");
-        my.subAggregation(my_top_hits);
-
-        //todo 进行分页和排序
-        BucketSortPipelineAggregationBuilder sortPipeline = new BucketSortPipelineAggregationBuilder("r_bucket_sort",null);
-        sortPipeline.from(0);
-        sortPipeline.size(30);
-        my.subAggregation(sortPipeline);
-        my.size(100);
-
-
-        searchSourceBuilder.aggregation(my);
+        searchSourceBuilder.sort(new FieldSortBuilder(MSD_ID).order(SortOrder.DESC).unmappedType("long"));
 
         searchSourceBuilder.from(0);
-        searchSourceBuilder.size(0);
-
+        searchSourceBuilder.size(100);
+        searchSourceBuilder.timeout(new TimeValue(TIME_OUT, TimeUnit.MILLISECONDS));
         searchRequest.source(searchSourceBuilder);
 
         SearchResponse response = esClient.search(searchRequest, RequestOptions.DEFAULT);
 
         System.out.println(response);
-
-        Terms agg = response.getAggregations().get("my");
-        System.out.println("agg.getBuckets() = " + agg.getBuckets().size());
-        for (Terms.Bucket bucket : agg.getBuckets()) {
-            Aggregations aggregations = bucket.getAggregations();
-
-            TopHits top = aggregations.get("my_top_hits");
-            for (SearchHit searchHit : top.getHits()) {
-//                System.out.println(searchHit.getSourceAsMap());
-            }
-        }
 
         esClient.close();
     }

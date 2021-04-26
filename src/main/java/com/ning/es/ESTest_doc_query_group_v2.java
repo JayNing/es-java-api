@@ -1,40 +1,31 @@
 package com.ning.es;
 
 import org.apache.http.HttpHost;
-import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestHighLevelClient;
-import org.elasticsearch.common.unit.Fuzziness;
-import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.index.query.*;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.aggregations.AggregationBuilders;
 import org.elasticsearch.search.aggregations.Aggregations;
-import org.elasticsearch.search.aggregations.BucketOrder;
 import org.elasticsearch.search.aggregations.bucket.terms.Terms;
 import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
-import org.elasticsearch.search.aggregations.metrics.CardinalityAggregationBuilder;
-import org.elasticsearch.search.aggregations.metrics.MaxAggregationBuilder;
 import org.elasticsearch.search.aggregations.metrics.TopHits;
 import org.elasticsearch.search.aggregations.metrics.TopHitsAggregationBuilder;
 import org.elasticsearch.search.aggregations.pipeline.BucketSortPipelineAggregationBuilder;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
-import org.elasticsearch.search.sort.FieldSortBuilder;
-import org.elasticsearch.search.sort.SortOrder;
 
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.concurrent.TimeUnit;
+import java.util.List;
 
 /**
  * @author ningjianjian
  * @Date 2021/4/11 3:47 下午
  * @Description
  */
-public class ESTest_doc_query_group {
+public class ESTest_doc_query_group_v2 {
 
     private static final String MSD_ID = "msgId";
     private static final String MSD_ID_KEYWORD = "msgId.keyword";
@@ -92,23 +83,31 @@ public class ESTest_doc_query_group {
         long end = Long.MAX_VALUE;
         filterQueryBuilder.must(new RangeQueryBuilder(TIME).from(start).to(end).includeLower(true).includeUpper(false));
 
-
         searchSourceBuilder.query(filterQueryBuilder);
 
         //todo 根据关键字分组
-        TermsAggregationBuilder my = AggregationBuilders.terms("my").field("groupId.keyword");
-        //todo 分组后，每个相同群组的结果
+        TermsAggregationBuilder my = AggregationBuilders.terms("my").field("index.keyword");
+        TermsAggregationBuilder myGroupId = AggregationBuilders.terms("myGroupId").field("groupId.keyword");
+//        TermsAggregationBuilder myTime = AggregationBuilders.terms("myTime").field("time.keyword");
+//        myGroupId.subAggregation(myTime);
+        //todo 分组后，每个相同groupId的结果
         TopHitsAggregationBuilder my_top_hits = AggregationBuilders.topHits("my_top_hits");
-        my.subAggregation(my_top_hits);
+        myGroupId.subAggregation(my_top_hits);
+        my.subAggregation(myGroupId);
+
+//        MaxAggregationBuilder maxTime = AggregationBuilders.max("maxTime").field("time");
+//        my.subAggregation(maxTime);
+        //todo 分组后，每个相同关键字的结果只显示一条
+//        TopHitsAggregationBuilder my_top_hits = AggregationBuilders.topHits("my_top_hits");
+//        myGroupId.subAggregation(my_top_hits);
 
         //todo 进行分页和排序
         BucketSortPipelineAggregationBuilder sortPipeline = new BucketSortPipelineAggregationBuilder("r_bucket_sort",null);
         sortPipeline.from(0);
-        sortPipeline.size(30);
+        sortPipeline.size(6);
         my.subAggregation(sortPipeline);
-        my.size(100);
-
-
+        //todo 添加size(100), 解决聚合查询结果桶数量默认只显示10条的问题
+        my.size(Integer.MAX_VALUE);
         searchSourceBuilder.aggregation(my);
 
         searchSourceBuilder.from(0);
@@ -121,13 +120,17 @@ public class ESTest_doc_query_group {
         System.out.println(response);
 
         Terms agg = response.getAggregations().get("my");
-        System.out.println("agg.getBuckets() = " + agg.getBuckets().size());
+        System.out.println("agg.getBuckets().size() : " + agg.getBuckets().size());
         for (Terms.Bucket bucket : agg.getBuckets()) {
             Aggregations aggregations = bucket.getAggregations();
-
-            TopHits top = aggregations.get("my_top_hits");
-            for (SearchHit searchHit : top.getHits()) {
-//                System.out.println(searchHit.getSourceAsMap());
+            Terms group = aggregations.get("myGroupId");
+            List<? extends Terms.Bucket> groupBuckets = group.getBuckets();
+            for (Terms.Bucket groupBucket : groupBuckets) {
+                Aggregations bucketAggregations = groupBucket.getAggregations();
+                TopHits topHits = bucketAggregations.get("my_top_hits");
+                for (SearchHit searchHit : topHits.getHits()) {
+                    System.out.println(searchHit.getSourceAsString());
+                }
             }
         }
 
